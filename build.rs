@@ -1,8 +1,6 @@
-extern crate cmudict_core;
-
 use std::env;
 use std::path::Path;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Seek, BufRead, Write, SeekFrom};
 use std::fs::File;
 
 pub fn main() {
@@ -22,10 +20,16 @@ fn expand_rules(src: &Path, dst: &Path) -> io::Result<()> {
     let reader = io::BufReader::new(rules);
     let mut out = try!(File::create(dst));
     let lines = reader.lines();
+    let mut num_lines = 0;
 
-    try!(writeln!(out, r##"static CMUDICT: Vec<Rule> = vec!["##));
+    try!(writeln!(out, r##"pub const CMUDICT: [&'static str; XXXXXX] = ["##));
 
-    for line in lines {
+    for line in lines.skip_while(|l| {
+        match l {
+            &Ok(ref line) => line.starts_with(";;;"),
+            &Err(_) => panic!("Couldn't read line"),
+        }
+    }) {
         let line = match line {
             Ok(l) => l,
             Err(e) => {
@@ -36,13 +40,15 @@ fn expand_rules(src: &Path, dst: &Path) -> io::Result<()> {
         if line.starts_with(";;;") {
             continue;
         }
-        let parts = line.split_whitespace();
-
-        try!(writeln!(out, "  {}", line));
+        try!(writeln!(out, r##"  r#"{}"#,"##, line));
+        num_lines += 1;
     }
 
     try!(writeln!(out, r##"];"##));
+    try!(out.seek(SeekFrom::Start(0)));
+    try!(writeln!(out,
+                  r##"pub const CMUDICT: [&'static str; {:?}] = ["##,
+                  num_lines));
 
     Ok(())
 }
-
